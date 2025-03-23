@@ -271,81 +271,171 @@ if st.session_state.data is not None:
             st.info("No numeric columns available for outlier detection")
     
     # Tab 3: Visualization
-    with tabs[2]:
-        st.header("Visualization")
+with tabs[2]:
+    st.header("Visualization")
+    
+    # Select visualization type
+    viz_type = st.selectbox("Select visualization type:", 
+                           ["Correlation Matrix", "Scatter Plot", "Line Chart", 
+                            "Bar Chart", "Box Plot", "Histogram", "Pair Plot"])
+    
+    # Previous visualization logic remains mostly the same
+    # Main change is in the Bar Chart section
+    
+    # Handle different visualization types
+    if viz_type == "Correlation Matrix":
+        # Add code for correlation matrix visualization
+        st.subheader("Correlation Matrix")
+        numeric_columns = st.session_state.data.select_dtypes(include=['number']).columns.tolist()
+        if numeric_columns:
+            corr_matrix = st.session_state.data[numeric_columns].corr()
+            fig = plot_correlation(corr_matrix)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No numeric columns available for correlation analysis")
+    
+    elif viz_type == "Scatter Plot":
+        # Code for scatter plot
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            x_col = st.selectbox("X-axis:", st.session_state.data.select_dtypes(include=['number']).columns.tolist())
+        with col2:
+            y_col = st.selectbox("Y-axis:", [c for c in st.session_state.data.select_dtypes(include=['number']).columns.tolist() if c != x_col])
+        with col3:
+            color_cols = ["None"] + st.session_state.data.columns.tolist()
+            color_col = st.selectbox("Color by:", color_cols)
         
-        # Select visualization type
-        viz_type = st.selectbox("Select visualization type:", 
-                               ["Correlation Matrix", "Scatter Plot", "Line Chart", 
-                                "Bar Chart", "Box Plot", "Histogram", "Pair Plot"])
+        fig = px.scatter(
+            st.session_state.data, x=x_col, y=y_col, 
+            color=None if color_col == "None" else color_col,
+            title=f"{y_col} vs {x_col}"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    elif viz_type == "Line Chart":
+        # Code for line chart
+        col1, col2 = st.columns(2)
+        with col1:
+            x_col = st.selectbox("X-axis (time/sequence):", st.session_state.data.columns.tolist())
+        with col2:
+            y_cols = st.multiselect("Y-axis (values):", st.session_state.data.select_dtypes(include=['number']).columns.tolist())
         
-        # Previous visualization logic remains mostly the same
-        # Main change is in the Bar Chart section
+        if y_cols:
+            fig = px.line(st.session_state.data, x=x_col, y=y_cols, title=f"Line Chart of {', '.join(y_cols)} over {x_col}")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Please select at least one column for Y-axis")
+    
+    elif viz_type == "Bar Chart":
+        col1, col2 = st.columns(2)
+        with col1:
+            x_col = st.selectbox("Categories (X-axis):", st.session_state.data.columns.tolist())
+        with col2:
+            # Dynamically adjust Y-axis options based on column types
+            y_options = ["Count"]
+            if st.session_state.data.select_dtypes(include=['number']).columns.tolist():
+                y_options.extend(st.session_state.data.select_dtypes(include=['number']).columns.tolist())
+            y_col = st.selectbox("Values (Y-axis):", y_options)
         
-        # Other visualization types remain unchanged
-        
-        # Improved Bar Chart Visualization
-        elif viz_type == "Bar Chart":
-            col1, col2 = st.columns(2)
-            with col1:
-                x_col = st.selectbox("Categories (X-axis):", st.session_state.data.columns.tolist())
-            with col2:
-                # Dynamically adjust Y-axis options based on column types
-                y_options = ["Count"]
-                if st.session_state.data.select_dtypes(include=['number']).columns.tolist():
-                    y_options.extend(st.session_state.data.select_dtypes(include=['number']).columns.tolist())
-                y_col = st.selectbox("Values (Y-axis):", y_options)
-            
-            try:
-                if y_col == "Count":
-                    # Create count data with proper index reset and column naming
-                    count_data = st.session_state.data[x_col].value_counts().reset_index()
-                    count_data.columns = ['Category', 'Count']
-                    
-                    # Sort data for better visualization
-                    count_data = count_data.sort_values('Count', ascending=False)
-                    
-                    # Create bar plot with improved handling
-                    fig = px.bar(
-                        count_data, 
-                        x='Category', 
-                        y='Count', 
-                        title=f"Count of {x_col}",
-                        labels={'Category': x_col, 'Count': 'Frequency'}
-                    )
-                else:
-                    # For numeric value aggregation
-                    agg_data = st.session_state.data.groupby(x_col)[y_col].agg(['mean', 'median', 'count']).reset_index()
-                    agg_data.columns = [x_col, 'Mean', 'Median', 'Count']
-                    
-                    # Sort by mean value for better visualization
-                    agg_data = agg_data.sort_values('Mean', ascending=False)
-                    
-                    # Create bar plot with multiple metrics
-                    fig = px.bar(
-                        agg_data, 
-                        x=x_col, 
-                        y='Mean', 
-                        title=f"{y_col} by {x_col}",
-                        hover_data=['Median', 'Count']
-                    )
+        try:
+            if y_col == "Count":
+                # Create count data with proper index reset and column naming
+                count_data = st.session_state.data[x_col].value_counts().reset_index()
+                count_data.columns = ['Category', 'Count']
                 
-                # Improve plot readability
-                fig.update_layout(
-                    xaxis_title=x_col,
-                    yaxis_title='Value',
-                    height=500,
-                    width=800
+                # Sort data for better visualization
+                count_data = count_data.sort_values('Count', ascending=False)
+                
+                # Create bar plot with improved handling
+                fig = px.bar(
+                    count_data, 
+                    x='Category', 
+                    y='Count', 
+                    title=f"Count of {x_col}",
+                    labels={'Category': x_col, 'Count': 'Frequency'}
                 )
+            else:
+                # For numeric value aggregation
+                agg_data = st.session_state.data.groupby(x_col)[y_col].agg(['mean', 'median', 'count']).reset_index()
+                agg_data.columns = [x_col, 'Mean', 'Median', 'Count']
                 
-                # Rotate x-axis labels if many categories
-                if len(st.session_state.data[x_col].unique()) > 10:
-                    fig.update_xaxes(tickangle=45)
+                # Sort by mean value for better visualization
+                agg_data = agg_data.sort_values('Mean', ascending=False)
                 
-                st.plotly_chart(fig, use_container_width=True)
+                # Create bar plot with multiple metrics
+                fig = px.bar(
+                    agg_data, 
+                    x=x_col, 
+                    y='Mean', 
+                    title=f"{y_col} by {x_col}",
+                    hover_data=['Median', 'Count']
+                )
             
-            except Exception as e:
-                st.error(f"Error creating bar chart: {str(e)}")
+            # Improve plot readability
+            fig.update_layout(
+                xaxis_title=x_col,
+                yaxis_title='Value',
+                height=500,
+                width=800
+            )
+            
+            # Rotate x-axis labels if many categories
+            if len(st.session_state.data[x_col].unique()) > 10:
+                fig.update_xaxes(tickangle=45)
+            
+            st.plotly_chart(fig, use_container_width=True)
+        
+        except Exception as e:
+            st.error(f"Error creating bar chart: {str(e)}")
+    
+    elif viz_type == "Box Plot":
+        col1, col2 = st.columns(2)
+        with col1:
+            y_col = st.selectbox("Values to plot:", st.session_state.data.select_dtypes(include=['number']).columns.tolist())
+        with col2:
+            group_cols = ["None"] + [c for c in st.session_state.data.columns if c != y_col and st.session_state.data[c].nunique() < 20]
+            group_col = st.selectbox("Group by:", group_cols)
+        
+        if group_col == "None":
+            fig = px.box(st.session_state.data, y=y_col, title=f"Box Plot of {y_col}")
+        else:
+            fig = px.box(st.session_state.data, y=y_col, x=group_col, title=f"Box Plot of {y_col} by {group_col}")
+        
+        st.plotly_chart(fig, use_container_width=True)
+    
+    elif viz_type == "Histogram":
+        col1, col2 = st.columns(2)
+        with col1:
+            hist_col = st.selectbox("Select column:", st.session_state.data.select_dtypes(include=['number']).columns.tolist())
+        with col2:
+            bins = st.slider("Number of bins:", min_value=5, max_value=100, value=30)
+        
+        fig = px.histogram(st.session_state.data, x=hist_col, nbins=bins, title=f"Histogram of {hist_col}")
+        st.plotly_chart(fig, use_container_width=True)
+    
+    elif viz_type == "Pair Plot":
+        numeric_cols = st.session_state.data.select_dtypes(include=['number']).columns.tolist()
+        
+        if len(numeric_cols) > 1:
+            selected_cols = st.multiselect("Select columns (2-5 recommended):", numeric_cols, default=numeric_cols[:3])
+            
+            if len(selected_cols) > 1:
+                color_cols = ["None"] + [c for c in st.session_state.data.columns if c not in selected_cols and st.session_state.data[c].nunique() < 10]
+                color_col = st.selectbox("Color by:", color_cols)
+                
+                # Create pair plot using plotly
+                fig = px.scatter_matrix(
+                    st.session_state.data, 
+                    dimensions=selected_cols,
+                    color=None if color_col == "None" else color_col,
+                    title="Pair Plot"
+                )
+                fig.update_layout(height=800)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Please select at least 2 columns for pair plot")
+        else:
+            st.info("Not enough numeric columns for pair plot")
         
         # Remaining visualization types remain unchanged
         # (Scatter Plot, Line Chart, Box Plot, Histogram, Pair Plot)
