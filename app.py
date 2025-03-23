@@ -15,10 +15,46 @@ import os
 from datetime import datetime
 
 from data_loader import load_data
-from data_profiler import profile_data, detect_outliers, plot_correlation
+from data_profiler import detect_outliers  # Removed plot_correlation import
 from data_transformer import apply_transformations
 from data_exporter import export_data
 from utils import generate_download_link
+
+# Define a function to profile data (to replace the imported one)
+def profile_data(df):
+    """
+    Generate profile for each column in the dataframe
+    """
+    profile = {}
+    
+    for column in df.columns:
+        col_profile = {}
+        
+        # Basic counts
+        col_profile['count'] = df[column].count()
+        col_profile['missing'] = df[column].isna().sum()
+        col_profile['missing_pct'] = round(df[column].isna().sum() / len(df) * 100, 2)
+        
+        if pd.api.types.is_numeric_dtype(df[column]):
+            # Numeric statistics
+            col_profile['mean'] = round(df[column].mean(), 2) if not pd.isna(df[column].mean()) else None
+            col_profile['median'] = round(df[column].median(), 2) if not pd.isna(df[column].median()) else None
+            col_profile['std'] = round(df[column].std(), 2) if not pd.isna(df[column].std()) else None
+            col_profile['min'] = round(df[column].min(), 2) if not pd.isna(df[column].min()) else None
+            col_profile['max'] = round(df[column].max(), 2) if not pd.isna(df[column].max()) else None
+            col_profile['25%'] = round(df[column].quantile(0.25), 2) if not pd.isna(df[column].quantile(0.25)) else None
+            col_profile['75%'] = round(df[column].quantile(0.75), 2) if not pd.isna(df[column].quantile(0.75)) else None
+            
+        else:
+            # Categorical statistics
+            col_profile['unique'] = df[column].nunique()
+            col_profile['top'] = df[column].value_counts().index[0] if not df[column].value_counts().empty else None
+            col_profile['top_count'] = df[column].value_counts().iloc[0] if not df[column].value_counts().empty else None
+            col_profile['top_pct'] = round(df[column].value_counts().iloc[0] / df[column].count() * 100, 2) if not df[column].value_counts().empty else None
+        
+        profile[column] = col_profile
+    
+    return profile
 
 # Set page configuration
 st.set_page_config(
@@ -240,33 +276,58 @@ if st.session_state.data is not None:
                         # Display distribution plot
                         st.subheader("Distribution")
                         if pd.api.types.is_numeric_dtype(st.session_state.data[column]):
-                            fig = px.histogram(st.session_state.data, x=column, marginal="box")
-                            st.plotly_chart(fig, use_container_width=True)
+                            try:
+                                fig = px.histogram(st.session_state.data, x=column, marginal="box")
+                                st.plotly_chart(fig, use_container_width=True)
+                            except Exception as e:
+                                st.error(f"Error creating histogram: {str(e)}")
+                                # Fallback to matplotlib
+                                fig, ax = plt.subplots()
+                                ax.hist(st.session_state.data[column].dropna())
+                                st.pyplot(fig)
                         elif pd.api.types.is_categorical_dtype(st.session_state.data[column]) or st.session_state.data[column].nunique() < 10:
-                            fig = px.bar(st.session_state.data[column].value_counts().reset_index(), 
-                                         x='index', y=column, title=f"Count of {column}")
-                            fig.update_layout(xaxis_title=column, yaxis_title='Count')
-                            st.plotly_chart(fig, use_container_width=True)
+                            try:
+                                value_counts = st.session_state.data[column].value_counts().reset_index()
+                                value_counts.columns = ['value', 'count']
+                                fig = px.bar(value_counts, x='value', y='count', title=f"Count of {column}")
+                                fig.update_layout(xaxis_title=column, yaxis_title='Count')
+                                st.plotly_chart(fig, use_container_width=True)
+                            except Exception as e:
+                                st.error(f"Error creating bar chart: {str(e)}")
+                                # Fallback to matplotlib
+                                fig, ax = plt.subplots()
+                                st.session_state.data[column].value_counts().plot(kind='bar', ax=ax)
+                                st.pyplot(fig)
         
         # Outlier Detection
         st.subheader("Outlier Detection")
         numeric_columns = st.session_state.data.select_dtypes(include=['number']).columns.tolist()
         if numeric_columns:
             col_for_outliers = st.selectbox("Select column for outlier detection:", numeric_columns)
-            outliers, threshold = detect_outliers(st.session_state.data, col_for_outliers)
-            
-            if outliers.any():
-                st.info(f"Found {outliers.sum()} outliers in {col_for_outliers} (threshold: {threshold:.2f})")
+            try:
+                outliers, threshold = detect_outliers(st.session_state.data, col_for_outliers)
                 
-                # Plot with outliers highlighted
-                fig = px.box(st.session_state.data, y=col_for_outliers)
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Display outliers
-                st.subheader("Outlier Values")
-                st.dataframe(st.session_state.data[outliers][[col_for_outliers]], use_container_width=True)
-            else:
-                st.success(f"No outliers detected in {col_for_outliers}")
+                if outliers.any():
+                    st.info(f"Found {outliers.sum()} outliers in {col_for_outliers} (threshold: {threshold:.2f})")
+                    
+                    # Plot with outliers highlighted
+                    try:
+                        fig = px.box(st.session_state.data, y=col_for_outliers)
+                        st.plotly_chart(fig, use_container_width=True)
+                    except Exception as e:
+                        st.error(f"Error creating box plot: {str(e)}")
+                        # Fallback to matplotlib
+                        fig, ax = plt.subplots()
+                        sns.boxplot(y=st.session_state.data[col_for_outliers], ax=ax)
+                        st.pyplot(fig)
+                    
+                    # Display outliers
+                    st.subheader("Outlier Values")
+                    st.dataframe(st.session_state.data[outliers][[col_for_outliers]], use_container_width=True)
+                else:
+                    st.success(f"No outliers detected in {col_for_outliers}")
+            except Exception as e:
+                st.error(f"Error detecting outliers: {str(e)}")
         else:
             st.info("No numeric columns available for outlier detection")
     
@@ -281,47 +342,107 @@ if st.session_state.data is not None:
         
         # Handle different visualization types
         if viz_type == "Correlation Matrix":
-            # Add code for correlation matrix visualization
             st.subheader("Correlation Matrix")
             numeric_columns = st.session_state.data.select_dtypes(include=['number']).columns.tolist()
             if numeric_columns:
-                corr_matrix = st.session_state.data[numeric_columns].corr()
-                fig = plot_correlation(corr_matrix)
-                st.plotly_chart(fig, use_container_width=True)
+                try:
+                    # Calculate correlation matrix
+                    corr_matrix = st.session_state.data[numeric_columns].corr()
+                    
+                    # Create heatmap using go.Heatmap instead of px.imshow
+                    fig = go.Figure(data=go.Heatmap(
+                        z=corr_matrix.values,
+                        x=corr_matrix.columns,
+                        y=corr_matrix.columns,
+                        colorscale='RdBu_r',
+                        zmin=-1,
+                        zmax=1
+                    ))
+                    
+                    fig.update_layout(
+                        title="Correlation Matrix",
+                        height=600,
+                        width=800
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Display correlation table
+                    if st.checkbox("Show correlation values"):
+                        st.dataframe(corr_matrix.round(2), use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error creating correlation matrix: {str(e)}")
+                    # Fallback to matplotlib
+                    try:
+                        fig, ax = plt.subplots(figsize=(10, 8))
+                        sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', vmin=-1, vmax=1, ax=ax)
+                        st.pyplot(fig)
+                    except Exception as e2:
+                        st.error(f"Fallback visualization also failed: {str(e2)}")
             else:
                 st.info("No numeric columns available for correlation analysis")
         
         elif viz_type == "Scatter Plot":
             # Code for scatter plot
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                x_col = st.selectbox("X-axis:", st.session_state.data.select_dtypes(include=['number']).columns.tolist())
-            with col2:
-                y_col = st.selectbox("Y-axis:", [c for c in st.session_state.data.select_dtypes(include=['number']).columns.tolist() if c != x_col])
-            with col3:
-                color_cols = ["None"] + st.session_state.data.columns.tolist()
-                color_col = st.selectbox("Color by:", color_cols)
-            
-            fig = px.scatter(
-                st.session_state.data, x=x_col, y=y_col, 
-                color=None if color_col == "None" else color_col,
-                title=f"{y_col} vs {x_col}"
-            )
-            st.plotly_chart(fig, use_container_width=True)
+            numeric_cols = st.session_state.data.select_dtypes(include=['number']).columns.tolist()
+            if len(numeric_cols) >= 2:
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    x_col = st.selectbox("X-axis:", numeric_cols)
+                with col2:
+                    y_cols = [c for c in numeric_cols if c != x_col]
+                    y_col = st.selectbox("Y-axis:", y_cols)
+                with col3:
+                    color_cols = ["None"] + st.session_state.data.columns.tolist()
+                    color_col = st.selectbox("Color by:", color_cols)
+                
+                try:
+                    fig = px.scatter(
+                        st.session_state.data, 
+                        x=x_col, 
+                        y=y_col, 
+                        color=None if color_col == "None" else color_col,
+                        title=f"{y_col} vs {x_col}"
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error creating scatter plot: {str(e)}")
+                    # Fallback to matplotlib
+                    fig, ax = plt.subplots()
+                    ax.scatter(st.session_state.data[x_col], st.session_state.data[y_col])
+                    ax.set_xlabel(x_col)
+                    ax.set_ylabel(y_col)
+                    st.pyplot(fig)
+            else:
+                st.info("Need at least 2 numeric columns for scatter plot")
         
         elif viz_type == "Line Chart":
             # Code for line chart
-            col1, col2 = st.columns(2)
-            with col1:
-                x_col = st.selectbox("X-axis (time/sequence):", st.session_state.data.columns.tolist())
-            with col2:
-                y_cols = st.multiselect("Y-axis (values):", st.session_state.data.select_dtypes(include=['number']).columns.tolist())
-            
-            if y_cols:
-                fig = px.line(st.session_state.data, x=x_col, y=y_cols, title=f"Line Chart of {', '.join(y_cols)} over {x_col}")
-                st.plotly_chart(fig, use_container_width=True)
+            numeric_cols = st.session_state.data.select_dtypes(include=['number']).columns.tolist()
+            if numeric_cols:
+                col1, col2 = st.columns(2)
+                with col1:
+                    x_col = st.selectbox("X-axis (time/sequence):", st.session_state.data.columns.tolist())
+                with col2:
+                    y_cols = st.multiselect("Y-axis (values):", numeric_cols)
+                
+                if y_cols:
+                    try:
+                        fig = px.line(st.session_state.data, x=x_col, y=y_cols, title=f"Line Chart of {', '.join(y_cols)} over {x_col}")
+                        st.plotly_chart(fig, use_container_width=True)
+                    except Exception as e:
+                        st.error(f"Error creating line chart: {str(e)}")
+                        # Fallback to matplotlib
+                        fig, ax = plt.subplots()
+                        for col in y_cols:
+                            ax.plot(st.session_state.data[x_col], st.session_state.data[col], label=col)
+                        ax.set_xlabel(x_col)
+                        ax.legend()
+                        st.pyplot(fig)
+                else:
+                    st.info("Please select at least one column for Y-axis")
             else:
-                st.info("Please select at least one column for Y-axis")
+                st.info("No numeric columns available for line chart")
         
         elif viz_type == "Bar Chart":
             col1, col2 = st.columns(2)
@@ -329,110 +450,231 @@ if st.session_state.data is not None:
                 x_col = st.selectbox("Categories (X-axis):", st.session_state.data.columns.tolist())
             with col2:
                 # Dynamically adjust Y-axis options based on column types
+                numeric_cols = st.session_state.data.select_dtypes(include=['number']).columns.tolist()
                 y_options = ["Count"]
-                if st.session_state.data.select_dtypes(include=['number']).columns.tolist():
-                    y_options.extend(st.session_state.data.select_dtypes(include=['number']).columns.tolist())
+                if numeric_cols:
+                    y_options.extend(numeric_cols)
                 y_col = st.selectbox("Values (Y-axis):", y_options)
             
             try:
                 if y_col == "Count":
-                    # Create count data with proper index reset and column naming
+                    # Create count data
                     count_data = st.session_state.data[x_col].value_counts().reset_index()
                     count_data.columns = ['Category', 'Count']
                     
                     # Sort data for better visualization
                     count_data = count_data.sort_values('Count', ascending=False)
                     
-                    # Create bar plot with improved handling
-                    fig = px.bar(
-                        count_data, 
-                        x='Category', 
-                        y='Count', 
+                    # Create simple bar chart using go.Bar
+                    fig = go.Figure(data=go.Bar(
+                        x=count_data['Category'],
+                        y=count_data['Count'],
+                        marker_color='skyblue'
+                    ))
+                    
+                    fig.update_layout(
                         title=f"Count of {x_col}",
-                        labels={'Category': x_col, 'Count': 'Frequency'}
+                        xaxis_title=x_col,
+                        yaxis_title="Count",
+                        height=500
                     )
                 else:
                     # For numeric value aggregation
-                    agg_data = st.session_state.data.groupby(x_col)[y_col].agg(['mean', 'median', 'count']).reset_index()
-                    agg_data.columns = [x_col, 'Mean', 'Median', 'Count']
+                    grouped = st.session_state.data.groupby(x_col)[y_col].agg(['mean', 'median', 'count']).reset_index()
+                    grouped.columns = [x_col, 'Mean', 'Median', 'Count']
                     
-                    # Sort by mean value for better visualization
-                    agg_data = agg_data.sort_values('Mean', ascending=False)
+                    # Sort by mean value
+                    grouped = grouped.sort_values('Mean', ascending=False)
                     
-                    # Create bar plot with multiple metrics
-                    fig = px.bar(
-                        agg_data, 
-                        x=x_col, 
-                        y='Mean', 
-                        title=f"{y_col} by {x_col}",
-                        hover_data=['Median', 'Count']
+                    # Create bar chart using go.Bar
+                    fig = go.Figure(data=go.Bar(
+                        x=grouped[x_col],
+                        y=grouped['Mean'],
+                        marker_color='skyblue',
+                        hovertemplate=
+                        '<b>%{x}</b><br>' +
+                        'Mean: %{y:.2f}<br>' +
+                        'Median: %{customdata[0]:.2f}<br>' +
+                        'Count: %{customdata[1]}<br>',
+                        customdata=np.column_stack((grouped['Median'], grouped['Count']))
+                    ))
+                    
+                    fig.update_layout(
+                        title=f"{y_col} by {x_col} (Mean)",
+                        xaxis_title=x_col,
+                        yaxis_title=y_col,
+                        height=500
                     )
-                
-                # Improve plot readability
-                fig.update_layout(
-                    xaxis_title=x_col,
-                    yaxis_title='Value',
-                    height=500,
-                    width=800
-                )
                 
                 # Rotate x-axis labels if many categories
                 if len(st.session_state.data[x_col].unique()) > 10:
-                    fig.update_xaxes(tickangle=45)
+                    fig.update_layout(xaxis_tickangle=-45)
                 
                 st.plotly_chart(fig, use_container_width=True)
             
             except Exception as e:
                 st.error(f"Error creating bar chart: {str(e)}")
+                # Fallback to matplotlib
+                try:
+                    fig, ax = plt.subplots(figsize=(10, 6))
+                    if y_col == "Count":
+                        st.session_state.data[x_col].value_counts().plot(kind='bar', ax=ax)
+                    else:
+                        st.session_state.data.groupby(x_col)[y_col].mean().sort_values(ascending=False).plot(kind='bar', ax=ax)
+                    plt.xticks(rotation=45)
+                    plt.tight_layout()
+                    st.pyplot(fig)
+                except Exception as e2:
+                    st.error(f"Fallback visualization also failed: {str(e2)}")
         
         elif viz_type == "Box Plot":
-            col1, col2 = st.columns(2)
-            with col1:
-                y_col = st.selectbox("Values to plot:", st.session_state.data.select_dtypes(include=['number']).columns.tolist())
-            with col2:
-                group_cols = ["None"] + [c for c in st.session_state.data.columns if c != y_col and st.session_state.data[c].nunique() < 20]
-                group_col = st.selectbox("Group by:", group_cols)
-            
-            if group_col == "None":
-                fig = px.box(st.session_state.data, y=y_col, title=f"Box Plot of {y_col}")
+            numeric_cols = st.session_state.data.select_dtypes(include=['number']).columns.tolist()
+            if numeric_cols:
+                col1, col2 = st.columns(2)
+                with col1:
+                    y_col = st.selectbox("Values to plot:", numeric_cols)
+                with col2:
+                    group_cols = ["None"] + [c for c in st.session_state.data.columns if c != y_col and st.session_state.data[c].nunique() < 20]
+                    group_col = st.selectbox("Group by:", group_cols)
+                
+                try:
+                    if group_col == "None":
+                        fig = go.Figure()
+                        fig.add_trace(go.Box(
+                            y=st.session_state.data[y_col],
+                            name=y_col,
+                            boxmean=True
+                        ))
+                        fig.update_layout(
+                            title=f"Box Plot of {y_col}",
+                            yaxis_title=y_col,
+                            height=500
+                        )
+                    else:
+                        fig = px.box(
+                            st.session_state.data, 
+                            y=y_col, 
+                            x=group_col, 
+                            title=f"Box Plot of {y_col} by {group_col}"
+                        )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error creating box plot: {str(e)}")
+                    # Fallback to matplotlib
+                    fig, ax = plt.subplots(figsize=(10, 6))
+                    if group_col == "None":
+                        sns.boxplot(y=st.session_state.data[y_col], ax=ax)
+                    else:
+                        sns.boxplot(x=st.session_state.data[group_col], y=st.session_state.data[y_col], ax=ax)
+                    plt.xticks(rotation=45)
+                    plt.tight_layout()
+                    st.pyplot(fig)
             else:
-                fig = px.box(st.session_state.data, y=y_col, x=group_col, title=f"Box Plot of {y_col} by {group_col}")
-            
-            st.plotly_chart(fig, use_container_width=True)
+                st.info("No numeric columns available for box plot")
         
         elif viz_type == "Histogram":
-            col1, col2 = st.columns(2)
-            with col1:
-                hist_col = st.selectbox("Select column:", st.session_state.data.select_dtypes(include=['number']).columns.tolist())
-            with col2:
-                bins = st.slider("Number of bins:", min_value=5, max_value=100, value=30)
-            
-            fig = px.histogram(st.session_state.data, x=hist_col, nbins=bins, title=f"Histogram of {hist_col}")
-            st.plotly_chart(fig, use_container_width=True)
+            numeric_cols = st.session_state.data.select_dtypes(include=['number']).columns.tolist()
+            if numeric_cols:
+                col1, col2 = st.columns(2)
+                with col1:
+                    hist_col = st.selectbox("Select column:", numeric_cols)
+                with col2:
+                    bins = st.slider("Number of bins:", min_value=5, max_value=100, value=30)
+                
+                try:
+                    # Create histogram using go.Histogram
+                    fig = go.Figure(data=go.Histogram(
+                        x=st.session_state.data[hist_col],
+                        nbinsx=bins,
+                        marker_color='steelblue'
+                    ))
+                    
+                    fig.update_layout(
+                        title=f"Histogram of {hist_col}",
+                        xaxis_title=hist_col,
+                        yaxis_title="Count",
+                        height=500
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error creating histogram: {str(e)}")
+                    # Fallback to matplotlib
+                    fig, ax = plt.subplots(figsize=(10, 6))
+                    ax.hist(st.session_state.data[hist_col].dropna(), bins=bins)
+                    ax.set_xlabel(hist_col)
+                    ax.set_ylabel("Count")
+                    st.pyplot(fig)
+            else:
+                st.info("No numeric columns available for histogram")
         
         elif viz_type == "Pair Plot":
             numeric_cols = st.session_state.data.select_dtypes(include=['number']).columns.tolist()
             
             if len(numeric_cols) > 1:
-                selected_cols = st.multiselect("Select columns (2-5 recommended):", numeric_cols, default=numeric_cols[:3])
+                # Limit options to prevent performance issues
+                if len(numeric_cols) > 10:
+                    numeric_cols = numeric_cols[:10]
+                    st.warning("Limiting to first 10 numeric columns for performance")
+                
+                selected_cols = st.multiselect("Select columns (2-5 recommended):", 
+                                               numeric_cols, 
+                                               default=numeric_cols[:min(3, len(numeric_cols))])
                 
                 if len(selected_cols) > 1:
+                    if len(selected_cols) > 5:
+                        st.warning("Using many columns might slow down the browser")
+                    
                     color_cols = ["None"] + [c for c in st.session_state.data.columns if c not in selected_cols and st.session_state.data[c].nunique() < 10]
                     color_col = st.selectbox("Color by:", color_cols)
                     
-                    # Create pair plot using plotly
-                    fig = px.scatter_matrix(
-                        st.session_state.data, 
-                        dimensions=selected_cols,
-                        color=None if color_col == "None" else color_col,
-                        title="Pair Plot"
-                    )
-                    fig.update_layout(height=800)
-                    st.plotly_chart(fig, use_container_width=True)
+                    try:
+                        # Create pair plot using go.Splom (Scatter Plot Matrix)
+                        if color_col == "None":
+                            fig = px.scatter_matrix(
+                                st.session_state.data,
+                                dimensions=selected_cols,
+                                title="Pair Plot"
+                            )
+                        else:
+                            fig = px.scatter_matrix(
+                                st.session_state.data,
+                                dimensions=selected_cols,
+                                color=color_col,
+                                title="Pair Plot"
+                            )
+                        
+                        # Update to make it more compact and readable
+                        fig.update_layout(
+                            height=800,
+                            width=800
+                        )
+                        
+                        # Less opacity for better visibility of overlapping points
+                        fig.update_traces(marker=dict(opacity=0.7))
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                    except Exception as e:
+                        st.error(f"Error creating pair plot: {str(e)}")
+                        # Fallback to matplotlib
+                        try:
+                            if len(selected_cols) <= 4:  # Seaborn pairplot can be slow with many columns
+                                fig = sns.pairplot(
+                                    st.session_state.data[selected_cols] if color_col == "None" 
+                                    else st.session_state.data[selected_cols + [color_col]], 
+                                    hue=None if color_col == "None" else color_col,
+                                    diag_kind="kde"
+                                )
+                                st.pyplot(fig)
+                            else:
+                                st.error("Too many columns for fallback visualization")
+                        except Exception as e2:
+                            st.error(f"Fallback visualization also failed: {str(e2)}")
                 else:
                     st.info("Please select at least 2 columns for pair plot")
             else:
-                st.info("Not enough numeric columns for pair plot")
+                st.info("Need at least 2 numeric columns for pair plot")
     
     # Tab 4: Transformation
     with tabs[3]:
@@ -470,13 +712,191 @@ if st.session_state.data is not None:
             if st.button("Apply Filter"):
                 st.session_state.transformed_data = filtered_data
                 st.success("Filter applied successfully!")
+                
+        elif transform_choice == "Sort Data":
+            st.subheader("Sort Data")
+            col1, col2 = st.columns(2)
+            with col1:
+                sort_by = st.selectbox("Sort by:", st.session_state.data.columns)
+            with col2:
+                sort_order = st.radio("Order:", ["Ascending", "Descending"])
+            
+            ascending = sort_order == "Ascending"
+            sorted_data = st.session_state.data.sort_values(by=sort_by, ascending=ascending)
+            
+            st.dataframe(sorted_data.head(100), use_container_width=True)
+            
+            if st.button("Apply Sorting"):
+                st.session_state.transformed_data = sorted_data
+                st.success("Sorting applied successfully!")
+                
+        elif transform_choice == "Handle Missing Values":
+            st.subheader("Handle Missing Values")
+            
+            # Show columns with missing values
+            missing_cols = st.session_state.data.columns[st.session_state.data.isna().any()].tolist()
+            if not missing_cols:
+                st.success("No missing values in the dataset!")
+            else:
+                st.write(f"Columns with missing values: {', '.join(missing_cols)}")
+                
+                col_to_fill = st.selectbox("Select column to handle:", missing_cols)
+                fill_method = st.selectbox("Fill method:", 
+                                          ["Fill with value", "Fill with mean", "Fill with median", 
+                                           "Fill with mode", "Forward fill", "Backward fill", "Drop rows"])
+                
+                preview_data = st.session_state.data.copy()
+                
+                if fill_method == "Fill with value":
+                    fill_value = st.text_input("Fill value:")
+                    if fill_value:
+                        preview_data[col_to_fill] = preview_data[col_to_fill].fillna(fill_value)
+                elif fill_method == "Fill with mean" and pd.api.types.is_numeric_dtype(preview_data[col_to_fill]):
+                    preview_data[col_to_fill] = preview_data[col_to_fill].fillna(preview_data[col_to_fill].mean())
+                elif fill_method == "Fill with median" and pd.api.types.is_numeric_dtype(preview_data[col_to_fill]):
+                    preview_data[col_to_fill] = preview_data[col_to_fill].fillna(preview_data[col_to_fill].median())
+                elif fill_method == "Fill with mode":
+                    preview_data[col_to_fill] = preview_data[col_to_fill].fillna(preview_data[col_to_fill].mode()[0])
+                elif fill_method == "Forward fill":
+                    preview_data[col_to_fill] = preview_data[col_to_fill].ffill()
+                elif fill_method == "Backward fill":
+                    preview_data[col_to_fill] = preview_data[col_to_fill].bfill()
+                elif fill_method == "Drop rows":
+                    preview_data = preview_data.dropna(subset=[col_to_fill])
+                
+                st.write(f"Preview (showing first 100 rows):")
+                st.dataframe(preview_data.head(100), use_container_width=True)
+                
+                if st.button("Apply Missing Value Handling"):
+                    st.session_state.transformed_data = preview_data
+                    st.success(f"Missing values in {col_to_fill} handled successfully!")
         
-        # Add other transformation options here
+        elif transform_choice == "Create New Column":
+            st.subheader("Create New Column")
+            
+            new_col_name = st.text_input("New column name:")
+            
+            if new_col_name:
+                formula_type = st.selectbox("Formula type:", 
+                                           ["Simple arithmetic", "Categorical mapping", "Text transformation"])
+                
+                preview_data = st.session_state.data.copy()
+                
+                if formula_type == "Simple arithmetic":
+                    numeric_cols = st.session_state.data.select_dtypes(include=['number']).columns.tolist()
+                    if not numeric_cols:
+                        st.error("No numeric columns available for arithmetic operations")
+                    else:
+                        col1 = st.selectbox("First column:", numeric_cols)
+                        operation = st.selectbox("Operation:", ["+", "-", "*", "/", "**"])
+                        col2_or_value = st.radio("Second operand type:", ["Column", "Value"])
+                        
+                        if col2_or_value == "Column":
+                            col2 = st.selectbox("Second column:", [c for c in numeric_cols if c != col1])
+                            if operation == "+":
+                                preview_data[new_col_name] = preview_data[col1] + preview_data[col2]
+                            elif operation == "-":
+                                preview_data[new_col_name] = preview_data[col1] - preview_data[col2]
+                            elif operation == "*":
+                                preview_data[new_col_name] = preview_data[col1] * preview_data[col2]
+                            elif operation == "/":
+                                preview_data[new_col_name] = preview_data[col1] / preview_data[col2].replace(0, np.nan)
+                            elif operation == "**":
+                                preview_data[new_col_name] = preview_data[col1] ** preview_data[col2]
+                        else:
+                            value = st.number_input("Value:")
+                            if operation == "+":
+                                preview_data[new_col_name] = preview_data[col1] + value
+                            elif operation == "-":
+                                preview_data[new_col_name] = preview_data[col1] - value
+                            elif operation == "*":
+                                preview_data[new_col_name] = preview_data[col1] * value
+                            elif operation == "/":
+                                preview_data[new_col_name] = preview_data[col1] / value if value != 0 else np.nan
+                            elif operation == "**":
+                                preview_data[new_col_name] = preview_data[col1] ** value
+                
+                elif formula_type == "Categorical mapping":
+                    cat_col = st.selectbox("Column to map:", st.session_state.data.columns)
+                    unique_values = st.session_state.data[cat_col].unique()
+                    
+                    st.write("Define mapping:")
+                    mapping = {}
+                    for val in unique_values:
+                        mapping[val] = st.text_input(f"Map '{val}' to:", val)
+                    
+                    preview_data[new_col_name] = preview_data[cat_col].map(mapping)
+                
+                elif formula_type == "Text transformation":
+                    text_cols = st.session_state.data.select_dtypes(include=['object']).columns.tolist()
+                    if not text_cols:
+                        st.error("No text columns available for text transformation")
+                    else:
+                        text_col = st.selectbox("Text column:", text_cols)
+                        transform_type = st.selectbox("Transformation type:", 
+                                                     ["Uppercase", "Lowercase", "Length", "Extract substring"])
+                        
+                        if transform_type == "Uppercase":
+                            preview_data[new_col_name] = preview_data[text_col].str.upper()
+                        elif transform_type == "Lowercase":
+                            preview_data[new_col_name] = preview_data[text_col].str.lower()
+                        elif transform_type == "Length":
+                            preview_data[new_col_name] = preview_data[text_col].str.len()
+                        elif transform_type == "Extract substring":
+                            start_pos = st.number_input("Start position:", min_value=0, value=0)
+                            end_pos = st.number_input("End position:", min_value=1, value=1)
+                            preview_data[new_col_name] = preview_data[text_col].str[start_pos:end_pos]
+                
+                st.write("Preview with new column:")
+                st.dataframe(preview_data.head(100), use_container_width=True)
+                
+                if st.button("Create Column"):
+                    st.session_state.transformed_data = preview_data
+                    st.success(f"Column '{new_col_name}' created successfully!")
+        
+        elif transform_choice == "Drop Columns":
+            st.subheader("Drop Columns")
+            
+            cols_to_drop = st.multiselect("Select columns to drop:", st.session_state.data.columns)
+            
+            if cols_to_drop:
+                preview_data = st.session_state.data.drop(columns=cols_to_drop)
+                
+                st.write("Preview after dropping columns:")
+                st.dataframe(preview_data.head(100), use_container_width=True)
+                
+                if st.button("Drop Columns"):
+                    st.session_state.transformed_data = preview_data
+                    st.success(f"Dropped {len(cols_to_drop)} columns successfully!")
+        
+        elif transform_choice == "Rename Columns":
+            st.subheader("Rename Columns")
+            
+            st.write("Enter new names for columns:")
+            rename_map = {}
+            for col in st.session_state.data.columns:
+                new_name = st.text_input(f"Rename '{col}' to:", col)
+                if new_name != col:
+                    rename_map[col] = new_name
+            
+            if rename_map:
+                preview_data = st.session_state.data.rename(columns=rename_map)
+                
+                st.write("Preview with renamed columns:")
+                st.dataframe(preview_data.head(100), use_container_width=True)
+                
+                if st.button("Rename Columns"):
+                    st.session_state.transformed_data = preview_data
+                    st.success(f"Renamed {len(rename_map)} columns successfully!")
         
         # Display transformed data if available
         if st.session_state.transformed_data is not None:
             st.subheader("Transformed Data Preview")
             st.dataframe(st.session_state.transformed_data.head(100), use_container_width=True)
+            
+            if st.button("Reset Transformation"):
+                st.session_state.transformed_data = None
+                st.success("Transformation reset successfully!")
     
     # Tab 5: Export
     with tabs[4]:
@@ -488,25 +908,42 @@ if st.session_state.data is not None:
         
         # Select data to export
         data_to_export = st.radio("Data to export:", 
-                                  ["Original Data", "Transformed Data" if st.session_state.transformed_data is not None else "Original Data"])
+                                  ["Original Data", "Transformed Data"],
+                                  disabled=(st.session_state.transformed_data is None))
+        
+        # Export filename
+        export_filename = st.text_input("Export filename (without extension):", 
+                                       value=st.session_state.file_name or "exported_data")
         
         # Export button
         if st.button("Export Data"):
-            export_data = st.session_state.transformed_data if data_to_export == "Transformed Data" and st.session_state.transformed_data is not None else st.session_state.data
+            export_data_df = st.session_state.transformed_data if data_to_export == "Transformed Data" and st.session_state.transformed_data is not None else st.session_state.data
             
-            # Generate file for download
-            if export_format == "CSV":
-                result = export_data(export_data, "csv", st.session_state.file_name)
-            elif export_format == "Excel":
-                result = export_data(export_data, "excel", st.session_state.file_name)
-            elif export_format == "JSON":
-                result = export_data(export_data, "json", st.session_state.file_name)
+            try:
+                if export_format == "CSV":
+                    csv_data = export_data_df.to_csv(index=False)
+                    b64 = base64.b64encode(csv_data.encode()).decode()
+                    href = f'<a href="data:text/csv;base64,{b64}" download="{export_filename}.csv">Download CSV file</a>'
+                    st.markdown(href, unsafe_allow_html=True)
+                    st.success(f"Data exported as CSV: {export_filename}.csv")
+                
+                elif export_format == "Excel":
+                    buffer = BytesIO()
+                    export_data_df.to_excel(buffer, index=False)
+                    b64 = base64.b64encode(buffer.getvalue()).decode()
+                    href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{export_filename}.xlsx">Download Excel file</a>'
+                    st.markdown(href, unsafe_allow_html=True)
+                    st.success(f"Data exported as Excel: {export_filename}.xlsx")
+                
+                elif export_format == "JSON":
+                    json_data = export_data_df.to_json(orient="records")
+                    b64 = base64.b64encode(json_data.encode()).decode()
+                    href = f'<a href="data:application/json;base64,{b64}" download="{export_filename}.json">Download JSON file</a>'
+                    st.markdown(href, unsafe_allow_html=True)
+                    st.success(f"Data exported as JSON: {export_filename}.json")
             
-            if result["success"]:
-                st.success("Data exported successfully!")
-                st.markdown(generate_download_link(result["data"], result["filename"]), unsafe_allow_html=True)
-            else:
-                st.error(f"Export failed: {result['message']}")
+            except Exception as e:
+                st.error(f"Export failed: {str(e)}")
 
 else:
     # If no data is loaded, show instructions
