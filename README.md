@@ -86,7 +86,11 @@ git push heroku main
 
 ## 📷 Screenshots
 
-!![image](https://github.com/user-attachments/assets/eb573fef-dcfe-47f1-88da-52be64c291f8) ![image](https://github.com/user-attachments/assets/f0aebedd-9f4b-480c-9c7d-b424c66c77bc)
+!![image](https://github.com/user-attachments/assets/eb573fef-dcfe-47f1-88da-52be64c291f8) ![image](https://github.com/user-attachments/assets/f0aebedd-9f4b-480c-9c7d-b424c66c77bc) ![image](https://github.com/user-attachments/assets/8dc80c4e-7bdb-43d7-8e8f-165ab70b8aef) ![image](https://github.com/user-attachments/assets/fbc55b74-a79a-4a49-afd8-75dd33cafb2f) ![image](https://github.com/user-attachments/assets/ee606f93-171b-4084-bde3-da2f2e5f640f) ![image](https://github.com/user-attachments/assets/cd5f1728-d47a-4dc4-b708-62dd0b25fa98)
+
+
+
+
 
 
 
