@@ -1,0 +1,14 @@
+streamlit
+pandas
+numpy
+matplotlib
+seaborn
+plotly
+plotly-express
+scikit-learn
+openpyxl
+xlsxwriter
+chardet
+wheel
+python-dateutil
+Pillow
