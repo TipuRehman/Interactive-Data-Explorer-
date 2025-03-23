@@ -12,3 +12,4 @@ chardet
 wheel
 python-dateutil
 Pillow
+typing-extensions
